@@ -109,61 +109,24 @@ def find_outlier_pixels(data,tolerance=3,worry_about_edges=True):
     return hot_pixels,fixed_image
 
 
-def initializeParameters(scan_num):
-    sid = np.int(scan_num)
-
-    h = db[sid]
-    df = h.table(fill=False)
-    bl = h.table('baseline')
-    plan_args = h.start['plan_args']
-    motors = h.start['motors']
-    if motors[0].endswith('y'):
-        flipScan = True
-    else:
-        flipScan = False
-
-    merlins = []
-
-    for name in h.fields():
-        if name.startswith('merlin'):
-            merlins.append(name)
-
-    if len(merlins) > 1:
-        det_name = "merlin2"
-    else:
-        det_name = "merlin1"
-
-    images = np.squeeze(list(h.data(det_name)))
-    print(np.shape(images))
-
-    return det_name,flipScan
-
-
 def load_data(scan_num,det_name,n,nn,mesh_flag,fly_flag,check_flag):
     sid = np.int(scan_num)
 
+    bl = db.get_table(db[sid],stream_name='baseline')
+    df = db.get_table(db[sid],fill=False)
+    #images = db.get_images(db[sid],name=det_name)
     h = db[sid]
-    df = h.table(fill = False)
-    bl = h.table('baseline')
-    plan_args = h.start['plan_args']
-
-    if "merlin1" in h.fields():
-        det_name = "merlin1"
-
-    elif "merlin2" in h.fields():
-        det_name = "merlin2"
-
-    images = np.squeeze(list(h.data(det_name)))
+    images = list(h.data(det_name))
     print(np.shape(images))
+    images = np.array(np.squeeze(images))
+    plan_args = db[sid].start['plan_args']
 
     try:
         angle = bl.zpsth[1]
     except:
         angle = 0
-
     dcm_th = bl.dcm_th[1]
     energy_kev = 12.39842 / (2.*3.1355893 * np.sin(dcm_th * np.pi / 180.))
-    #energy_kev = bl.energy[0] #replace?
 
     num_frame, count = np.shape(df)
     #num_frame = 500
@@ -208,7 +171,7 @@ def load_data(scan_num,det_name,n,nn,mesh_flag,fly_flag,check_flag):
     ic = np.asfarray(df['sclr1_ch4'])
     if ic[0] == 0:
         ic[0] = ic[1]
-    
+
     '''
     Ni_xrf = np.asfarray(df['Det1_Ni']+df['Det2_Ni']+df['Det3_Ni'])
     Au_xrf = np.asfarray(df['Det1_Au_M']+df['Det2_Au_M']+df['Det3_Au_M'])
@@ -222,7 +185,7 @@ def load_data(scan_num,det_name,n,nn,mesh_flag,fly_flag,check_flag):
         tt = (np.flipud(images[i,:,:]).T)
         nx,ny = np.shape(tt)
 
-        #tt[97:100,114:117] = 0.
+        #tt[54:78,70:230] = 0.
         #tt[55:200,200:220] = 0.
 
         t = tt
@@ -239,8 +202,8 @@ def load_data(scan_num,det_name,n,nn,mesh_flag,fly_flag,check_flag):
 
         t = t * ic[0] / ic[i]
         if i == 0:
-            cx = 98#55
-            cy = 115#77
+            cx = 97 #55
+            cy = 116  #77
             nx,ny = np.shape(t)
             data = np.zeros((num_frame,n,nn))
             #print(ic[0])
@@ -249,8 +212,8 @@ def load_data(scan_num,det_name,n,nn,mesh_flag,fly_flag,check_flag):
         #t = rm_outlier_pixels(t,hp)
 
         #t[77:79,86:89] = 0
+        t = rm_pixel(t,88,127)
         t = rm_pixel(t,94,90)
-        t = rm_pixel(t,128,119)
         #t = rm_pixel(t,90,74)
         #t = rm_pixel(t,182,419)
         #t = rm_pixel(t,317,165)
@@ -263,7 +226,7 @@ def load_data(scan_num,det_name,n,nn,mesh_flag,fly_flag,check_flag):
             plt.subplot(224)
             plt.imshow(np.log10(t+0.001))
             plt.show()
-
+            ddd
             break
         
         tmptmp = t[cx-n//2:cx+n//2,cy-nn//2:cy+nn//2]
@@ -271,13 +234,15 @@ def load_data(scan_num,det_name,n,nn,mesh_flag,fly_flag,check_flag):
         #tmptmp = np.zeros((n,nn))
         #tmptmp[36:,:-29] = t[:152,52:]
 
-        data[i,:,:] = np.fft.fftshift(tmptmp)
-
+        #data[i,:,:] = np.fft.fftshift(tmptmp)
+        data[i,:,:] = tmptmp
+    
+    data = np.fft.fftshift(data, axes = [1,2])
     threshold = 1.
     data = data - threshold
     data[data < 0.] = 0.
     data = np.sqrt(data)
-    return data, angle,x_range, y_range, dr_x, dr_y, points, energy_kev#, Ni_xrf, Au_xrf
+    return data, angle,x_range, y_range, dr_x, dr_y, points, energy_kev, ic#, Ni_xrf, Au_xrf
 
 
 def save_data(scan_num,mesh_flag,fly_flag,n,nn,distance,check_flag=0):
@@ -292,7 +257,7 @@ def save_data(scan_num,mesh_flag,fly_flag,n,nn,distance,check_flag=0):
     nn = np.int(nn)
     #angle = 10
 
-    data, angle,x_range, y_range, dr_x, dr_y, points, energy_kev = load_data(scan_num,det_name,n,nn,mesh_flag,fly_flag,check_flag)
+    data, angle,x_range, y_range, dr_x, dr_y, points, energy_kev, ic = load_data(scan_num,det_name,n,nn,mesh_flag,fly_flag,check_flag)
     print(np.shape(data),'angle: ',angle)
     print('energy:',energy_kev)
     lambda_nm = 1.2398/energy_kev
@@ -300,7 +265,7 @@ def save_data(scan_num,mesh_flag,fly_flag,n,nn,distance,check_flag=0):
     depth_of_field = lambda_nm * 1.e-9 / (n/2 * det_pixel_um*1.e-6 / det_distance_m)**2
     print('pixel num, pixel size, depth of field: ',n,pixel_size,depth_of_field)
 
-    with h5py.File('./h5_data/scan_'+np.str(scan_num)+'.h5', 'w') as hf:
+    with h5py.File('scan'+np.str(scan_num)+'.h5', 'w') as hf:
         dset = hf.create_dataset('diffamp',data=data)
         dset = hf.create_dataset('points',data=points)
         dset = hf.create_dataset('x_range',data=x_range)
@@ -311,7 +276,8 @@ def save_data(scan_num,mesh_flag,fly_flag,n,nn,distance,check_flag=0):
         dset = hf.create_dataset('lambda_nm',data=lambda_nm)
         dset = hf.create_dataset('ccd_pixel_um',data=det_pixel_um)
         dset = hf.create_dataset('angle',data=angle)
+        dset = hf.create_dataset('ic',data=ic)
         #dset = hf.create_dataset('Ni_xrf',data=Ni_xrf)
         #dset = hf.create_dataset('Au_xrf',data=Au_xrf)
 
-    os.system('ln -s /GPFS/XF03ID1/users/2022Q2/Huang_2022Q2/FCGNM_ptycho/h5_data/scan_'+np.str(scan_num)+'.h5 /GPFS/XF03ID1/users/2022Q2/Huang_2022Q2/FCGNM_ptycho/scan_'+np.str(scan_num)+'.h5')
+    #os.system('ln -s /GPFS/XF03ID1/users/2022Q2/Sprouster_2022Q2/ptycho_recon/h5_data/scan_'+np.str(scan_num)+'.h5 /GPFS/XF03ID1/users/2022Q2/Sprouster_2022Q2/ptycho_recon/scan_'+np.str(scan_num)+'.h5')
